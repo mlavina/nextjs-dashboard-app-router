@@ -14,24 +14,45 @@ export interface InvoiceFormData {
   status: Invoice['status'];
 }
 
+export type State = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
+
 const InvoiceFormSchema = z.object({
   id: z.string(),
-  customerId: z.string(),
-  amount: z.coerce.number(),
-  status: z.enum(['pending', 'paid']),
+  customerId: z.string({invalid_type_error: 'Please select a customer.'}),
+  amount: z.coerce.number().gt(0, 'Amount must be greater than 0'),
+  status: z.enum(['pending', 'paid'], {
+    invalid_type_error: 'Please select a valid status.',
+  }),
   date: z.string(),
 });
 
 const CreateInvoice = InvoiceFormSchema.omit({id: true, date: true});
 
-export async function createInvoice(formData: FormData) {
+export async function createInvoice(prevState: State, formData: FormData) {
   const invoiceFormData: InvoiceFormData = {
     customerId: formData.get('customerId') as string,
     amount: formData.get('amount') as string,
     status: formData.get('status') as Invoice['status'],
   };
 
-  const {customerId, amount, status} = CreateInvoice.parse(invoiceFormData);
+  const validatedFields = CreateInvoice.safeParse(invoiceFormData);
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to create invoice.',
+    };
+  }
+
+  const {customerId, amount, status} = validatedFields.data;
+
   const amountInCents = amount * 100;
   const date = new Date().toISOString().split('T')[0];
 
@@ -41,9 +62,7 @@ export async function createInvoice(formData: FormData) {
   `;
   } catch (error) {
     console.error('Database Error:', error);
-    return {
-      message: 'Database error occurred while creating the invoice.',
-    };
+    throw error;
   }
 
   revalidatePath('/dashboard/invoices');
@@ -53,14 +72,24 @@ export async function createInvoice(formData: FormData) {
 // Use Zod to update the expected types
 const UpdateInvoice = InvoiceFormSchema.omit({date: true});
 
-export async function updateInvoice(formData: FormData) {
-  const {id, customerId, amount, status} = UpdateInvoice.parse({
+export async function updateInvoice(prevState: State, formData: FormData) {
+  const validatedFields = UpdateInvoice.safeParse({
     id: formData.get('id'),
     customerId: formData.get('customerId'),
     amount: formData.get('amount'),
     status: formData.get('status'),
   });
 
+  console.log('Validated Fields:', validatedFields);
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to update invoice.',
+    };
+  }
+
+  const {id, customerId, amount, status} = validatedFields.data;
   const amountInCents = amount * 100;
 
   try {
@@ -71,9 +100,7 @@ export async function updateInvoice(formData: FormData) {
     `;
   } catch (error) {
     console.error('Database Error:', error);
-    return {
-      message: 'Database error occurred while updating the invoice.',
-    };
+    throw error;
   }
 
   revalidatePath('/dashboard/invoices');
@@ -85,15 +112,19 @@ const DeleteInvoice = z.object({
 });
 
 export async function deleteInvoice(formData: FormData) {
-  throw new Error('Failed to delete invoice'); // Temporary error for testing purposes
-  const {id} = DeleteInvoice.parse({
-    id: formData.get('id'),
-  });
+  try {
+    const {id} = DeleteInvoice.parse({
+      id: formData.get('id'),
+    });
 
-  await sql`
-    DELETE FROM invoices
-    WHERE id = ${id}
-  `;
+    await sql`
+      DELETE FROM invoices
+      WHERE id = ${id}
+    `;
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw error;
+  }
 
   revalidatePath('/dashboard/invoices');
 }
