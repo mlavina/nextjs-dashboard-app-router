@@ -1,5 +1,4 @@
 import {auth} from '@/auth'; // Adjust the import path to your auth helper
-import {fetchCustomersByUser} from '@/app/lib/data'; // You need to implement this function
 
 export default async function Page() {
   const session = await auth();
